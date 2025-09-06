@@ -1,52 +1,52 @@
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from databasa import init_db, save_plan, get_plan
+import requests
+import time
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Salom! Men — sizning rejalashtiruvchingiz!\n\n"
-        "Ertaga nimalar qilmoqchisiz? Shu xabarni menga yozing — men saqlab qo'yaman.\n"
-        "Keyin, ertaga rejangizni ko'rish uchun /ertaga buyrug'ini yuboring."
-    )
+TOKEN = "8488082831:AAHfDJMbkzDPBGytPnAHdWCj11ChxnJwUiM"
+BASE_URL = f"https://api.telegram.org/bot{TOKEN}/"
 
-
-async def handle_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    plan_text = update.message.text
-
-    save_plan(user_id, plan_text)
-
-    await update.message.reply_text(
-        "✅ Rejangiz saqlandi! Ertaga ko'rish uchun /ertaga bosing."
-    )
+CATEGORIES = {
+    "📰 Daryo.uz": "https://daryo.uz/feed",
+    "🌐 Kun.uz": "https://kun.uz/news/rss",
+    "🗞 Gazeta.uz": "https://www.gazeta.uz/uz/rss/"
+}
 
 
-async def show_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    plan = get_plan(user_id)
+def get_updates(offset=None):
+    resp = requests.get(BASE_URL + "getUpdates", params={"offset": offset, "timeout": 100})
+    return resp.json().get("result", [])
 
-    if plan:
-        await update.message.reply_text(f"📋 Sizning ertangi rejangiz:\n\n{plan}")
-    else:
-        await update.message.reply_text("❌ Siz hali hech qanday reja kiritmadingiz.")
+def send_message(chat_id, text, reply_markup=None):
+    payload = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    requests.post(BASE_URL + "sendMessage", json=payload)
 
 
 def main():
-    TOKEN = "8488082831:AAHfDJMbkzDPBGytPnAHdWCj11ChxnJwUiM"
+    offset = None
+    while True:
+        updates = get_updates(offset)
+        for update in updates:
+            offset = update["update_id"] + 1
+            message = update.get("message")
+            if not message:
+                continue
+            chat_id = message["chat"]["id"]
+            text = message.get("text", "")
 
+            if text == "/start":
+                keyboard = {
+                    "keyboard": [[{"text": k}] for k in CATEGORIES.keys()],
+                    "resize_keyboard": True
+                }
+                send_message(chat_id, "Salom! Kategoriyani tanlang 👇", keyboard)
 
-    init_db()
+            elif text in CATEGORIES:
+                send_message(chat_id, f"Siz tanladingiz: {text}\nYangiliklarni keyin qo‘shamiz ✅")
 
-
-    application = Application.builder().token(TOKEN).build()
-
-    # Handlerlar
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("ertaga", show_plan))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_plan))
-
-    print("✅ Bot ishga tushdi...")
-    application.run_polling()
+        time.sleep(1)
 
 if __name__ == "__main__":
     main()
+
+
